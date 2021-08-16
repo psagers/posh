@@ -138,19 +138,18 @@
                          (remove (set val-keys))
                          (map (fn [k] {k [:db/id]})))
         starred?    (some #{'*} val-keys)
-        pull-maps   (reduce merge (concat ref-keys (filter map? pull-pattern)))
-        db-id       (or (:db/id affected-pull) (if (and (vector? affected-pull) (= :db/id (first affected-pull))) (second affected-pull)))]
-    (when db-id
+        pull-maps   (reduce merge (concat ref-keys (filter map? pull-pattern)))]
+    (when (:db/id affected-pull)
       (concat
        (when (not (or refs-only? (empty? val-keys)))
-         [[db-id (if starred? '_ (set val-keys)) '_]])
+         [[(:db/id affected-pull) (if starred? '_ (set val-keys)) '_]])
        (mapcat (fn [[ref-key ref-pull]]
                  (let [r? (reverse-lookup? ref-key)
                        unrev-key (if r? (reverse-lookup ref-key) ref-key)]
                    (concat
                     (if r?
-                      [['_ unrev-key db-id]]
-                      [[db-id ref-key '_]])
+                      [['_ unrev-key (:db/id affected-pull)]]
+                      [[(:db/id affected-pull) ref-key '_]])
                     (cond
                      (recursive-val? ref-pull)
                      (when (ref-key affected-pull)
