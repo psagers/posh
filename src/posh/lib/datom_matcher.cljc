@@ -44,16 +44,16 @@
              (cons (first patterns) leftover-patterns)))))
 
 (defn reduce-patterns [patterns]
-  (loop [new-patterns []
-         leftover-patterns patterns]
-    (if (empty? leftover-patterns)
-      new-patterns
-      (if (let [id (ffirst leftover-patterns)]
-            (or (set? id) (number? id)))
-        (let [r (combine-entids #{} (rest (first leftover-patterns))
-                                leftover-patterns
-                                new-patterns
-                                [])]
-          (recur (:new-patterns r) (:leftover-patterns r)))
-        (recur (cons (first leftover-patterns) new-patterns) (rest leftover-patterns))))))
-
+  (distinct
+   (loop [new-patterns []
+          leftover-patterns patterns]
+     (if (empty? leftover-patterns)
+       new-patterns
+       (if (let [id (ffirst leftover-patterns)]
+             (or (set? id) (number? id)))
+         (let [r (combine-entids #{} (rest (first leftover-patterns))
+                                 leftover-patterns
+                                 new-patterns
+                                 [])]
+           (recur (:new-patterns r) (:leftover-patterns r)))
+         (recur (cons (first leftover-patterns) new-patterns) (rest leftover-patterns)))))))

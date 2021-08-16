@@ -1,5 +1,5 @@
 (ns posh.lib.datascript-test
-  (:require [clojure.test :refer [is deftest testing]]
+  (:require [clojure.test :refer [is are deftest testing]]
             [datascript.core :as dt]
             [posh.clj.datascript :as d]))
 
@@ -74,8 +74,8 @@
   (testing "Query for tuple values works via :in"
     (let [conn (dt/create-conn)
           _ (d/posh! conn)
-          tran (d/transact! conn [{:a ["foo" "bar"]
-                                   :b 42}])
+          _ (d/transact! conn [{:a ["foo" "bar"]
+                                :b 42}])
           ent (->> (d/q '[:find ?e
                           :in $ ?v
                           :where [?e :a ?v]] conn ["foo" "bar"])
@@ -90,8 +90,8 @@
   (testing "Query for tuple values works in :where clause"
     (let [conn (dt/create-conn)
           _ (d/posh! conn)
-          tran (d/transact! conn [{:a ["foo" "bar"]
-                                   :b 42}])
+          _ (d/transact! conn [{:a ["foo" "bar"]
+                                :b 42}])
           ent (->> (d/q '[:find ?e
                           :where [?e :a ["foo" "bar"]]] conn)
                    deref
@@ -105,7 +105,7 @@
   (testing "Basic pull returns entity reaction which updates on entity's transact"
     (let [conn (dt/create-conn)
           _ (d/posh! conn)
-          tran (d/transact! conn [{:a "foo" :b 42}])
+          _ (d/transact! conn [{:a "foo" :b 42}])
           eid (->> (d/q '[:find ?e
                           :where [?e :a "foo"]] conn)
                    deref
@@ -127,7 +127,7 @@
           ents [{:a "foo" :b 42}
                 {:a "bar" :b 52}
                 {:a "baz" :b 62}]
-          tran (d/transact! conn ents)
+          _ (d/transact! conn ents)
           eids (->> (d/q '[:find ?e
                            :where [?e :a _]] conn)
                     deref
@@ -141,3 +141,95 @@
         (d/transact! conn updated-ents)
         (is (= updated-ents @entity-reaction)
             "Entities in reaction should updated after transact")))))
+
+(deftest pull-reverse-component-test
+  (let [->schema (fn [isComponent]
+                   {:parent/id {:db/unique :db.unique/identity}
+                    :parent/child {:db/valueType :db.type/ref
+                                   :db/isComponent isComponent
+                                   :db/cardinality :db.cardinality/one}
+                    :child/id {:db/unique :db.unique/identity}})
+        data [{:parent/id "grandma"
+               :parent/score 16
+               :name "margit"
+               :parent/child {:parent/id "dad"
+                              :name "make"
+                              :parent/child {:child/id "kid"
+                                             :name "eeva"}}}]]
+
+    (testing "pulling reverse relationships"
+      (let [conn (dt/create-conn (->schema true))
+            _ (d/posh! conn)
+            _ (d/transact! conn data)
+            grandma-reaction (d/pull conn [:parent/score] [:parent/id "grandma"])
+            dad-reaction (d/pull conn [{:parent/_child [:parent/score]}] [:parent/id "dad"])
+            child-reaction (d/pull conn [{:parent/_child [{:parent/_child [:parent/score]}]}] [:child/id "kid"])]
+
+        (testing "all see same score"
+          (is (= (-> @grandma-reaction :parent/score)
+                 (-> @dad-reaction :parent/_child :parent/score)
+                 (-> @child-reaction :parent/_child :parent/_child :parent/score))))
+
+        (testing "all get updated on score change"
+          (d/transact! conn [[:db/add [:parent/id "grandma"] :parent/score 42]])
+          (is (= (-> @grandma-reaction :parent/score)
+                 (-> @dad-reaction :parent/_child :parent/score)
+                 (-> @child-reaction :parent/_child :parent/_child :parent/score))))))
+
+    (testing "analysis"
+      (let [analyze (fn [schema pattern id]
+                      (let [conn (dt/create-conn schema)]
+                        (d/posh! conn)
+                        (d/transact! conn data)
+                        (posh.lib.pull-analyze/pull-analyze
+                         d/dcfg
+                         [:datoms :patterns]
+                         {:db @conn :schema schema :db-id :posh}
+                         pattern id)))]
+
+        (are [pattern id expected]
+          (let [with-isComponent (analyze (->schema true) pattern id)
+                without-isComponent (analyze (->schema false) pattern id)]
+
+            (testing "both ways give same resuls"
+              (is (= with-isComponent without-isComponent)))
+
+            (testing "results are correct"
+              (is (= expected with-isComponent))))
+
+          ;; direct
+          [:parent/score :name]
+          [:parent/id "grandma"]
+          '{:datoms {:posh [[1 :parent/score 16]
+                            [1 :name "margit"]]},
+            :patterns {:posh [[#{1} #{:name :parent/score} _]
+                              [_ :parent/id "grandma"]]}}
+
+          ;; child -> child
+          [:name :parent/score {:parent/child [:name {:parent/child [:name]}]}]
+          [:parent/id "grandma"]
+          '{:datoms {:posh ([1 :name "margit"]
+                            [1 :parent/score 16]
+                            [1 :parent/child 2]
+                            [2 :name "make"]
+                            [2 :parent/child 3]
+                            [3 :name "eeva"])},
+            :patterns {:posh ([#{1 2} :parent/child _]
+                              [#{3 2} #{:name} _]
+                              [#{1} #{:name :parent/score} _]
+                              [_ :parent/id "grandma"])}}
+
+          ;; _child -> _child
+          [:name {:parent/_child [:name {:parent/_child [:name :parent/score]}]}]
+          [:child/id "kid"]
+          '{:datoms {:posh ([3 :name "eeva"]
+                            [2 :parent/child 3]
+                            [2 :name "make"]
+                            [1 :parent/child 2]
+                            [1 :name "margit"]
+                            [1 :parent/score 16])},
+            :patterns {:posh ([_ :parent/child 2]
+                              [_ :parent/child 3]
+                              [#{1} #{:name :parent/score} _]
+                              [#{3 2} #{:name} _]
+                              [_ :child/id "kid"])}})))))

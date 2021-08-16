@@ -47,6 +47,8 @@
   (when-let [e (get schema attr)]
     (= (:db/cardinality e) :db.cardinality/many)))
 
+(defn vectorize [x] (cond-> x (map? x) vector))
+
 (defn tx-datoms-for-pull-map [schema entity-id pull-map]
   (if (empty? pull-map)
     []
@@ -65,17 +67,22 @@
           [[entity-id k (:db/id v)]]
           (tx-datoms-for-pull-map schema (:db/id v) v))
 
-         (or r? (cardinality-many? schema k))
+         (or r? (cardinality-one? schema k))
          (concat
-          (when (not r?)
-            (mapcat #(vector [entity-id k (:db/id %)]) v))
           (mapcat #(tx-datoms-for-pull-map
                     schema
                     (:db/id %)
                     (merge (when r? {k {:db/id entity-id}}) %))
-                  v))
+                  (vectorize v)))
 
-         :else [[entity-id k v]])
+         (cardinality-many? schema k)
+         (concat
+          (if-not r? (mapcat #(vector [entity-id k (:db/id %)]) v))
+          (mapcat #(tx-datoms-for-pull-map
+                    schema
+                    (:db/id %)
+                    (merge (if r? {k [{:db/id entity-id}]}) %))
+                  v)))
         (tx-datoms-for-pull-map schema entity-id (rest pull-map)))
 
        :else
@@ -86,8 +93,7 @@
         (tx-datoms-for-pull-map schema entity-id (rest pull-map)))))))
 
 (defn generate-affected-tx-datoms-for-pull [schema affected-pull]
-  (tx-datoms-for-pull-map schema (:db/id affected-pull) affected-pull))
-
+  (distinct (tx-datoms-for-pull-map schema (:db/id affected-pull) affected-pull)))
 
 ;;;;; pull pattern generator ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -135,18 +141,19 @@
                          (remove (set val-keys))
                          (map (fn [k] {k [:db/id]})))
         starred?    (some #{'*} val-keys)
-        pull-maps   (reduce merge (concat ref-keys (filter map? pull-pattern)))]
-    (when (:db/id affected-pull)
+        pull-maps   (reduce merge (concat ref-keys (filter map? pull-pattern)))
+        db-id       (or (:db/id affected-pull) (if (and (vector? affected-pull) (= :db/id (first affected-pull))) (second affected-pull)))]
+    (when db-id
       (concat
        (when (not (or refs-only? (empty? val-keys)))
-         [[(:db/id affected-pull) (if starred? '_ (set val-keys)) '_]])
+         [[db-id (if starred? '_ (set val-keys)) '_]])
        (mapcat (fn [[ref-key ref-pull]]
                  (let [r? (reverse-lookup? ref-key)
                        unrev-key (if r? (reverse-lookup ref-key) ref-key)]
                    (concat
                     (if r?
-                      [['_ unrev-key (:db/id affected-pull)]]
-                      [[(:db/id affected-pull) ref-key '_]])
+                      [['_ unrev-key db-id]]
+                      [[db-id ref-key '_]])
                     (cond
                      (recursive-val? ref-pull)
                      (when (ref-key affected-pull)
@@ -155,9 +162,9 @@
 
                      (or r? (cardinality-many? schema unrev-key))
                      (mapcat #(tx-pattern-for-pull schema ref-pull % refs-only?)
-                             (ref-key affected-pull))
+                             (vectorize (ref-key affected-pull)))
                      :else
-                     (tx-pattern-for-pull schema ref-pull (ref-key affected-pull refs-only?))))))
+                     (tx-pattern-for-pull schema ref-pull (ref-key affected-pull) refs-only?)))))
                pull-maps)))))
 
 
