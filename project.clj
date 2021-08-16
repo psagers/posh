@@ -1,4 +1,4 @@
-(defproject denistakeda/posh "0.5.8"
+(defproject denistakeda/posh "0.5.9"
   :description "Luxuriously easy and powerful Reagent / Datascript front-end framework"
   :url "http://github.com/denistakeda/posh/"
   :license {:name "Eclipse Public License"
