@@ -62,13 +62,10 @@
        (ref? schema k)
        (concat
         (cond
-         (and (not r?) (cardinality-one? schema k))
-         (concat
-          [[entity-id k (:db/id v)]]
-          (tx-datoms-for-pull-map schema (:db/id v) v))
 
-         (or r? (cardinality-one? schema k))
+         (cardinality-one? schema k)
          (concat
+          (when-not r? [[entity-id k (:db/id v)]])
           (mapcat #(tx-datoms-for-pull-map
                     schema
                     (:db/id %)
@@ -77,7 +74,7 @@
 
          (cardinality-many? schema k)
          (concat
-          (if-not r? (mapcat #(vector [entity-id k (:db/id %)]) v))
+          (when-not r? (mapcat #(vector [entity-id k (:db/id %)]) v))
           (mapcat #(tx-datoms-for-pull-map
                     schema
                     (:db/id %)

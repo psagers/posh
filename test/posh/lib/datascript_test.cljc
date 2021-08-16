@@ -6,7 +6,7 @@
 (deftest test-simple-query
   (let [conn (dt/create-conn {:a {:db/unique :db.unique/identity}})
         _ (d/posh! conn)
-        tran-a (d/transact! conn [{:a "foo"}])
+        _ (d/transact! conn [{:a "foo"}])
         eid (->> (d/q '[:find ?e
                         :where [?e :a "foo"]] conn)
                  deref
@@ -19,8 +19,8 @@
   (testing "Lookups refs work within query :in as entity-id"
     (let [conn (dt/create-conn {:a {:db/unique :db.unique/identity}})
           _ (d/posh! conn)
-          tran-a (d/transact! conn [{:a "foo"
-                                     :b "bar"}])
+          _ (d/transact! conn [{:a "foo"
+                                :b "bar"}])
           b (->> (d/q '[:find ?b
                         :in $ ?lookup
                         :where
@@ -35,8 +35,8 @@
     (let [conn (dt/create-conn {:a {:db/unique :db.unique/identity}
                                 :b {:db/valueType :db.type/ref}})
           _ (d/posh! conn)
-          tran-a (d/transact! conn [{:a "foo"
-                                     :b {:a "foo2"}}])
+          _ (d/transact! conn [{:a "foo"
+                                :b {:a "foo2"}}])
           b (->> (d/q '[:find ?aval
                         :in $ ?lookup
                         :where
@@ -51,15 +51,15 @@
   (testing "Lookups refs work via db/transact"
     (let [conn (dt/create-conn {:a {:db/unique :db.unique/identity}})
           _ (d/posh! conn)
-          tran-a (d/transact! conn [{:a "foo"
-                                     :b "bar"}])
+          _ (d/transact! conn [{:a "foo"
+                                :b "bar"}])
           ent-a (->> (d/q '[:find ?e
                             :where [?e :a "foo"]] conn)
                      deref
                      ffirst
                      (dt/entity (dt/db conn))
                      dt/touch)
-          tran-b (d/transact! conn [[:db/add [:a "foo"] :b "zim"]])
+          _ (d/transact! conn [[:db/add [:a "foo"] :b "zim"]])
           ent-b (->> (d/q '[:find ?e
                             :where [?e :a "foo"]] conn)
                      deref
