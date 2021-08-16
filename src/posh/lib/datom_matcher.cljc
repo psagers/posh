@@ -57,15 +57,3 @@
           (recur (:new-patterns r) (:leftover-patterns r)))
         (recur (cons (first leftover-patterns) new-patterns) (rest leftover-patterns))))))
 
-(comment
-  (datom-match? '[#{123 88 32} :jimmy _] '[123 :jimmy "hey"])
-
-  (datom-match-patterns? '[[88 :deandog]
-                           [#{123 88 32} :jimmy _]] '[123 :jimmy "hey"])
-
-  (any-datoms-match? '[[88 :deandog]
-                       [#{123 88 32} :jimmy _]]
-                     '[[28882 :major "billy"] [123 :jimmy "hey"]])
-
-  
-  )
