@@ -142,7 +142,17 @@
         (is (= updated-ents @entity-reaction)
             "Entities in reaction should updated after transact")))))
 
-(deftest pull-reverse-component-test
+(defn analyze [schema data pattern id]
+  (let [conn (dt/create-conn schema)]
+    (d/posh! conn)
+    (d/transact! conn data)
+    (posh.lib.pull-analyze/pull-analyze
+     d/dcfg
+     [:datoms :patterns]
+     {:db @conn :schema schema :db-id :posh}
+     pattern id)))
+
+(deftest pull-reverse-one-component-test
   (let [->schema (fn [isComponent]
                    {:parent/id {:db/unique :db.unique/identity}
                     :parent/child {:db/valueType :db.type/ref
@@ -177,59 +187,92 @@
                  (-> @child-reaction :parent/_child :parent/_child :parent/score))))))
 
     (testing "analysis"
-      (let [analyze (fn [schema pattern id]
-                      (let [conn (dt/create-conn schema)]
-                        (d/posh! conn)
-                        (d/transact! conn data)
-                        (posh.lib.pull-analyze/pull-analyze
-                         d/dcfg
-                         [:datoms :patterns]
-                         {:db @conn :schema schema :db-id :posh}
-                         pattern id)))]
+      (are [pattern id expected]
+        (let [with-isComponent (analyze (->schema true) data pattern id)
+              without-isComponent (analyze (->schema false) data pattern id)]
 
-        (are [pattern id expected]
-          (let [with-isComponent (analyze (->schema true) pattern id)
-                without-isComponent (analyze (->schema false) pattern id)]
+          (testing "both ways give same resuls"
+            (is (= with-isComponent without-isComponent)))
 
-            (testing "both ways give same resuls"
-              (is (= with-isComponent without-isComponent)))
+          (testing "results are correct"
+            (is (= expected with-isComponent))))
 
-            (testing "results are correct"
-              (is (= expected with-isComponent))))
+        ;; direct
+        [:parent/score :name]
+        [:parent/id "grandma"]
+        '{:datoms {:posh [[1 :parent/score 16]
+                          [1 :name "margit"]]},
+          :patterns {:posh [[#{1} #{:name :parent/score} _]
+                            [_ :parent/id "grandma"]]}}
 
-          ;; direct
-          [:parent/score :name]
-          [:parent/id "grandma"]
-          '{:datoms {:posh [[1 :parent/score 16]
-                            [1 :name "margit"]]},
-            :patterns {:posh [[#{1} #{:name :parent/score} _]
-                              [_ :parent/id "grandma"]]}}
+        ;; child -> child
+        [:name :parent/score {:parent/child [:name {:parent/child [:name]}]}]
+        [:parent/id "grandma"]
+        '{:datoms {:posh ([1 :name "margit"]
+                          [1 :parent/score 16]
+                          [1 :parent/child 2]
+                          [2 :name "make"]
+                          [2 :parent/child 3]
+                          [3 :name "eeva"])},
+          :patterns {:posh ([#{1 2} :parent/child _]
+                            [#{3 2} #{:name} _]
+                            [#{1} #{:name :parent/score} _]
+                            [_ :parent/id "grandma"])}}
 
-          ;; child -> child
-          [:name :parent/score {:parent/child [:name {:parent/child [:name]}]}]
-          [:parent/id "grandma"]
-          '{:datoms {:posh ([1 :name "margit"]
-                            [1 :parent/score 16]
-                            [1 :parent/child 2]
-                            [2 :name "make"]
-                            [2 :parent/child 3]
-                            [3 :name "eeva"])},
-            :patterns {:posh ([#{1 2} :parent/child _]
-                              [#{3 2} #{:name} _]
-                              [#{1} #{:name :parent/score} _]
-                              [_ :parent/id "grandma"])}}
+        ;; _child -> _child
+        [:name {:parent/_child [:name {:parent/_child [:name :parent/score]}]}]
+        [:child/id "kid"]
+        '{:datoms {:posh ([3 :name "eeva"]
+                          [2 :parent/child 3]
+                          [2 :name "make"]
+                          [1 :parent/child 2]
+                          [1 :name "margit"]
+                          [1 :parent/score 16])},
+          :patterns {:posh ([_ :parent/child 2]
+                            [_ :parent/child 3]
+                            [#{1} #{:name :parent/score} _]
+                            [#{3 2} #{:name} _]
+                            [_ :child/id "kid"])}}))))
 
-          ;; _child -> _child
-          [:name {:parent/_child [:name {:parent/_child [:name :parent/score]}]}]
-          [:child/id "kid"]
-          '{:datoms {:posh ([3 :name "eeva"]
-                            [2 :parent/child 3]
-                            [2 :name "make"]
-                            [1 :parent/child 2]
-                            [1 :name "margit"]
-                            [1 :parent/score 16])},
-            :patterns {:posh ([_ :parent/child 2]
-                              [_ :parent/child 3]
-                              [#{1} #{:name :parent/score} _]
-                              [#{3 2} #{:name} _]
-                              [_ :child/id "kid"])}})))))
+(deftest pull-reverse-many-test
+  (let [schema {:parent/id {:db/unique :db.unique/identity}
+                :parent/child {:db/valueType :db.type/ref
+                               :db/isComponent false
+                               :db/cardinality :db.cardinality/many}
+                :child/id {:db/unique :db.unique/identity}}
+        data [{:parent/id "grandma"
+               :parent/score 16
+               :name "margit"
+               :parent/child [{:parent/id "mom"
+                               :name "irmeli"
+                               :parent/child [{:child/id "kid"
+                                               :name "eeva"}]}
+                              {:parent/id "dad"
+                               :name "make"
+                               :parent/child [{:child/id "kid"
+                                               :name "eeva"}]}]}]]
+
+    (testing "analysis"
+      (are [pattern id expected]
+        (let [ana (analyze schema data pattern id)]
+          (is (= expected ana)))
+
+        ;; child -> child -> _child -> _child
+        [:name {:parent/child [:name {:parent/child [:name {:parent/_child [{:parent/_child [:parent/score]}]}]}]}]
+        [:parent/id "grandma"]
+        '{:datoms {:posh ([1 :name "margit"]
+                          [1 :parent/child 2]
+                          [1 :parent/child 4]
+                          [2 :name "irmeli"]
+                          [2 :parent/child 3]
+                          [3 :name "eeva"]
+                          [1 :parent/score 16]
+                          [4 :parent/child 3]
+                          [4 :name "make"])},
+          :patterns {:posh ([_ :parent/child 3]
+                            [_ :parent/child 2]
+                            [_ :parent/child 4]
+                            [#{1 4 2} :parent/child _]
+                            [#{1} #{:parent/score} _]
+                            [#{1 4 3 2} #{:name} _]
+                            [_ :parent/id "grandma"])}}))))
