@@ -200,8 +200,8 @@
         ;; direct
         [:parent/score :name]
         [:parent/id "grandma"]
-        '{:datoms {:posh [[1 :parent/score 16]
-                          [1 :name "margit"]]},
+        '{:datoms {:posh [[1 :name "margit"]
+                          [1 :parent/score 16]]},
           :patterns {:posh [[#{1} #{:name :parent/score} _]
                             [_ :parent/id "grandma"]]}}
 
@@ -209,11 +209,11 @@
         [:name :parent/score {:parent/child [:name {:parent/child [:name]}]}]
         [:parent/id "grandma"]
         '{:datoms {:posh ([1 :name "margit"]
-                          [1 :parent/score 16]
                           [1 :parent/child 2]
                           [2 :name "make"]
                           [2 :parent/child 3]
-                          [3 :name "eeva"])},
+                          [3 :name "eeva"]
+                          [1 :parent/score 16])},
           :patterns {:posh ([#{1 2} :parent/child _]
                             [#{3 2} #{:name} _]
                             [#{1} #{:name :parent/score} _]

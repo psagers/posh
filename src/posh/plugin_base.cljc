@@ -62,11 +62,17 @@
                                    (set-conn-listener! dcfg posh-atom (first conns) db-id)
                                    (:schema @(first conns))))))))))
 
+(defn- conn->listeners
+  [conn]
+  (if-some [meta-listeners (:listeners (meta conn))]
+     ;; DataScript < 1.6
+     @meta-listeners
+     ;; Datascript >= 1.6
+     (:listeners @(:atom conn))))
 
-;; Posh's state atoms are stored inside a listener in the meta data of
-;; the datascript conn
+;; Posh's state atoms are stored inside its DataScript listener.
 (defn get-conn-var [dcfg conn var]
-  ((:posh-dispenser @(:listeners (meta conn))) var))
+  ((:posh-dispenser (conn->listeners conn)) var))
 
 (defn get-posh-atom [dcfg poshdb-or-conn]
   (if ((:conn? dcfg) poshdb-or-conn)
